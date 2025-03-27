@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:remindmewhere/home_page.dart';
 import 'create_reminder_page.dart';
 
 void main() {
@@ -13,7 +14,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'RemindMeWhere',
       theme: ThemeData(primarySwatch: Colors.indigo),
-      home: const CreateReminderPage(),
+      home: const HomePage(),
     );
   }
 }

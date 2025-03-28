@@ -255,7 +255,9 @@ class _HomePageState extends State<HomePage> {
         unselectedItemColor: Colors.white70,
         currentIndex: 1,
         onTap: (index) {
-          if (index == 1) {
+          if (index == 0) {
+            Navigator.pushNamed(context, '/profile');
+          } else if (index == 1) {
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -267,6 +269,7 @@ class _HomePageState extends State<HomePage> {
             );
           }
         },
+
         items: const [
           BottomNavigationBarItem(
             icon: Icon(FeatherIcons.user),

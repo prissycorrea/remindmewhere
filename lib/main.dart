@@ -14,7 +14,8 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'RemindMeWhere',
       theme: ThemeData(primarySwatch: Colors.indigo),
-      home: const HomePage(),
+      home: HomePage(),
+      routes: {'/create': (context) => const CreateReminderPage()},
     );
   }
 }

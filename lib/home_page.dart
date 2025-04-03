@@ -1,11 +1,17 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_feather_icons/flutter_feather_icons.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:remindmewhere/all_reminders_page.dart';
 
 class Reminder {
   final String title;
   final String location;
   final int distance;
+  final double latitude;
+  final double longitude;
   bool done;
   DateTime? completedAt;
 
@@ -13,6 +19,8 @@ class Reminder {
     required this.title,
     required this.location,
     required this.distance,
+    required this.latitude,
+    required this.longitude,
     this.done = false,
     this.completedAt,
   });
@@ -22,6 +30,8 @@ class Reminder {
       'title': title,
       'location': location,
       'distance': distance,
+      'latitude': latitude,
+      'longitude': longitude,
       'done': done,
       'completedAt': completedAt?.toIso8601String(),
     };
@@ -36,21 +46,65 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final List<Reminder> _reminders = [
-    Reminder(
-      title: 'Comprar ração',
-      location: 'Petz - Av. Marginal Tietê',
-      distance: 500,
-    ),
-    Reminder(
-      title: 'Farmácia',
-      location: 'Droga Raia - Av. Paulista',
-      distance: 300,
-      done: true,
-      completedAt: DateTime.now(),
-    ),
-    Reminder(title: 'Padaria', location: 'Padaria do Zé', distance: 150),
-  ];
+  final List<Reminder> _reminders = [];
+
+  final FlutterLocalNotificationsPlugin _notifications =
+      FlutterLocalNotificationsPlugin();
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeNotifications();
+    _checkAndRequestLocationPermission();
+
+    // 👇 Verifica localização automaticamente a cada 10 segundos
+    Timer.periodic(const Duration(seconds: 10), (timer) {
+      _checkRemindersByLocation();
+    });
+  }
+
+  Future<void> _checkAndRequestLocationPermission() async {
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Permissão de localização negada. Ative para continuar.',
+          ),
+        ),
+      );
+    }
+  }
+
+  void _initializeNotifications() async {
+    const AndroidInitializationSettings androidSettings =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    final InitializationSettings settings = InitializationSettings(
+      android: androidSettings,
+    );
+
+    await _notifications.initialize(settings);
+
+    const AndroidNotificationChannel channel = AndroidNotificationChannel(
+      'lembretes_channel',
+      'Lembretes',
+      description: 'Notificações de lembretes baseadas em localização',
+      importance: Importance.high,
+    );
+
+    await _notifications
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(channel);
+  }
 
   void toggleDone(Reminder reminder) {
     setState(() {
@@ -71,6 +125,40 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Future<void> _checkRemindersByLocation() async {
+    try {
+      final position = await Geolocator.getCurrentPosition();
+      final Distance distanceCalc = Distance();
+
+      for (final reminder in _reminders) {
+        if (!reminder.done) {
+          final double distance = distanceCalc(
+            LatLng(position.latitude, position.longitude),
+            LatLng(reminder.latitude, reminder.longitude),
+          );
+
+          if (distance <= reminder.distance) {
+            await _notifications.show(
+              0,
+              'Lembrete próximo!',
+              reminder.title,
+              const NotificationDetails(
+                android: AndroidNotificationDetails(
+                  'lembretes_channel',
+                  'Lembretes',
+                  importance: Importance.max,
+                  priority: Priority.high,
+                ),
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      print('Erro ao verificar localização: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final pendingReminders = _reminders.where((r) => !r.done).toList();
@@ -81,7 +169,6 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
@@ -112,12 +199,30 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
             const SizedBox(height: 20),
-
-            // Botão Novo Lembrete
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24.0),
               child: GestureDetector(
-                onTap: () => Navigator.pushNamed(context, '/create'),
+                onTap: () async {
+                  final result = await Navigator.pushNamed(context, '/create');
+                  if (result != null && result is Map<String, dynamic>) {
+                    setState(() {
+                      _reminders.add(
+                        Reminder(
+                          title: result['title'],
+                          location: result['location'],
+                          distance: result['distance'],
+                          latitude: result['latitude'],
+                          longitude: result['longitude'],
+                          done: result['done'] ?? false,
+                          completedAt:
+                              result['completedAt'] != null
+                                  ? DateTime.tryParse(result['completedAt'])
+                                  : null,
+                        ),
+                      );
+                    });
+                  }
+                },
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 20,
@@ -153,8 +258,6 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
             const SizedBox(height: 24),
-
-            // Lista de lembretes pendentes
             Expanded(
               child: ListView.builder(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -269,7 +372,6 @@ class _HomePageState extends State<HomePage> {
             );
           }
         },
-
         items: const [
           BottomNavigationBarItem(
             icon: Icon(FeatherIcons.user),

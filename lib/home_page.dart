@@ -1,10 +1,11 @@
-import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_feather_icons/flutter_feather_icons.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:remindmewhere/all_reminders_page.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class Reminder {
   final String title;
@@ -36,6 +37,21 @@ class Reminder {
       'completedAt': completedAt?.toIso8601String(),
     };
   }
+
+  factory Reminder.fromMap(Map<String, dynamic> map) {
+    return Reminder(
+      title: map['title'],
+      location: map['location'],
+      distance: map['distance'],
+      latitude: map['latitude'],
+      longitude: map['longitude'],
+      done: map['done'],
+      completedAt:
+          map['completedAt'] != null
+              ? DateTime.tryParse(map['completedAt'])
+              : null,
+    );
+  }
 }
 
 class HomePage extends StatefulWidget {
@@ -56,11 +72,7 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _initializeNotifications();
     _checkAndRequestLocationPermission();
-
-    // 👇 Verifica localização automaticamente a cada 10 segundos
-    Timer.periodic(const Duration(seconds: 10), (timer) {
-      _checkRemindersByLocation();
-    });
+    _loadReminders();
   }
 
   Future<void> _checkAndRequestLocationPermission() async {
@@ -106,17 +118,37 @@ class _HomePageState extends State<HomePage> {
         ?.createNotificationChannel(channel);
   }
 
-  void toggleDone(Reminder reminder) {
-    setState(() {
-      reminder.done = true;
-      reminder.completedAt = DateTime.now();
-    });
+  Future<void> _saveReminders() async {
+    final prefs = await SharedPreferences.getInstance();
+    final data = jsonEncode(_reminders.map((r) => r.toMap()).toList());
+    await prefs.setString('reminders', data);
   }
 
-  void deleteReminder(Reminder reminder) {
+  Future<void> _loadReminders() async {
+    final prefs = await SharedPreferences.getInstance();
+    final data = prefs.getString('reminders');
+    if (data != null) {
+      final decoded = jsonDecode(data) as List;
+      setState(() {
+        _reminders.clear();
+        _reminders.addAll(decoded.map((e) => Reminder.fromMap(e)));
+      });
+    }
+  }
+
+  void toggleDone(Reminder reminder) async {
+    setState(() {
+      reminder.done = !reminder.done;
+      reminder.completedAt = reminder.done ? DateTime.now() : null;
+    });
+    await _saveReminders();
+  }
+
+  void deleteReminder(Reminder reminder) async {
     setState(() {
       _reminders.remove(reminder);
     });
+    await _saveReminders();
   }
 
   void editReminder(Reminder reminder) {
@@ -221,6 +253,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                       );
                     });
+                    await _saveReminders();
                   }
                 },
                 child: Container(
@@ -298,8 +331,10 @@ class _HomePageState extends State<HomePage> {
                         ),
                         child: Row(
                           children: [
-                            const Icon(
-                              Icons.check_box_outline_blank,
+                            Icon(
+                              reminder.done
+                                  ? Icons.check_box
+                                  : Icons.check_box_outline_blank,
                               color: Colors.white,
                             ),
                             const SizedBox(width: 12),
